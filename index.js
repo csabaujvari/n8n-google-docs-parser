@@ -17,7 +17,17 @@ app.get('/', (req, res) => {
 app.post('/convert', (req, res) => {
   console.log('POST /convert called');
 
-  if (!req.files || !req.files.file) {
+  // Log ALL incoming form-data fields (including non-file fields)
+  console.log('req.body keys:', Object.keys(req.body));
+
+  // Log ALL uploaded file fields
+  if (req.files) {
+    console.log('req.files keys:', Object.keys(req.files));
+  } else {
+    console.log('No files uploaded');
+  }
+
+  if (!req.files || !req.files.file || !req.files.data) {
     console.warn('No file uploaded in request');
     return res.status(400).send('No file uploaded.');
   }
