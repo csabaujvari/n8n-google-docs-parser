@@ -1,5 +1,5 @@
 const express = require('express');
-const Busboy = require('busboy');
+const { Busboy } = require('busboy');
 const fs = require('fs');
 const { exec } = require('child_process');
 
