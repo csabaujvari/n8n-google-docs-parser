@@ -1,75 +1,55 @@
 const express = require('express');
-const fileUpload = require('express-fileupload');
 const fs = require('fs');
 const { exec } = require('child_process');
 
 const app = express();
 
-// Enable file upload middleware
-app.use(fileUpload());
+// Accept raw binary for any type — limit size as needed
+app.use('/convert', express.raw({ type: '*/*', limit: '50mb' }));
 
 // Health check
 app.get('/', (req, res) => {
-  console.log('Health check hit');
-  res.send('✅ Pandoc Cloud Run is alive!');
+  res.send('✅ Pandoc RAW Body Server is alive!');
 });
 
+// Raw binary upload & pandoc
 app.post('/convert', (req, res) => {
   console.log('POST /convert called');
 
-  // Log ALL incoming form-data fields (including non-file fields)
-  console.log('req.body keys:', Object.keys(req.body));
-
-  // Log ALL uploaded file fields
-  if (req.files) {
-    console.log('req.files keys:', Object.keys(req.files));
-  } else {
-    console.log('No files uploaded');
+  if (!req.body || !Buffer.isBuffer(req.body)) {
+    console.warn('No binary body found!');
+    return res.status(400).send('No binary data received.');
   }
 
-  if (!req.files || !req.files.file || !req.files.data) {
-    console.warn('No file uploaded in request');
-    return res.status(400).send('No file uploaded.');
-  }
+  const uploadPath = `/tmp/${Date.now()}.docx`;
+  console.log(`Saving raw body to: ${uploadPath} (${req.body.length} bytes)`);
 
-  const file = req.files.file;
-  const uploadPath = `/tmp/${Date.now()}-${file.name}`;
-  console.log(`Incoming file: ${file.name} (${file.size} bytes)`);
-  console.log(`Saving to: ${uploadPath}`);
-
-  // Save uploaded file to /tmp
-  file.mv(uploadPath, err => {
+  fs.writeFile(uploadPath, req.body, (err) => {
     if (err) {
       console.error('Error saving file:', err);
-      return res.status(500).send('Failed to save file.');
+      return res.status(500).send('Error saving uploaded file.');
     }
 
-    console.log('File saved, starting pandoc conversion...');
-
-    // Run pandoc
+    console.log('File saved, running pandoc...');
     exec(`pandoc "${uploadPath}" -t plain`, (err, stdout, stderr) => {
       if (err) {
         console.error('Pandoc conversion error:', stderr);
         return res.status(500).send(`Pandoc error: ${stderr}`);
       }
 
-      console.log('Pandoc conversion done, sending response...');
+      console.log('Pandoc conversion done, sending result...');
       res.send(stdout);
 
-      // Clean up temp file
-      fs.unlink(uploadPath, unlinkErr => {
+      fs.unlink(uploadPath, (unlinkErr) => {
         if (unlinkErr) {
-          console.error('Error deleting temp file:', unlinkErr);
+          console.error('Cleanup error:', unlinkErr);
         } else {
-          console.log(`Cleaned up temp file: ${uploadPath}`);
+          console.log(`Temp file cleaned up: ${uploadPath}`);
         }
       });
     });
   });
 });
 
-// Start server
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => {
-  console.log(`✅ Pandoc server listening on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`✅ RAW Body Server listening on port ${PORT}`));
