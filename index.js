@@ -1,55 +1,65 @@
 const express = require('express');
-const { Busboy } = require('busboy');
+const fileUpload = require('express-fileupload');
 const fs = require('fs');
 const { exec } = require('child_process');
 
 const app = express();
 
+// Enable file upload middleware
+app.use(fileUpload());
+
 // Health check
 app.get('/', (req, res) => {
+  console.log('Health check hit');
   res.send('✅ Pandoc Cloud Run is alive!');
 });
 
 app.post('/convert', (req, res) => {
-  console.log('POST /convert');
+  console.log('POST /convert called');
 
-  const busboy = new Busboy({ headers: req.headers });
-  let uploadPath;
+  if (!req.files || !req.files.file) {
+    console.warn('No file uploaded in request');
+    return res.status(400).send('No file uploaded.');
+  }
 
-  busboy.on('file', (fieldname, file, filename) => {
-    console.log(`Receiving file: ${filename}`);
-    uploadPath = `/tmp/${Date.now()}-${filename}`;
-    const fstream = fs.createWriteStream(uploadPath);
-    file.pipe(fstream);
+  const file = req.files.file;
+  const uploadPath = `/tmp/${Date.now()}-${file.name}`;
+  console.log(`Incoming file: ${file.name} (${file.size} bytes)`);
+  console.log(`Saving to: ${uploadPath}`);
 
-    fstream.on('close', () => {
-      console.log(`Saved to ${uploadPath}`);
+  // Save uploaded file to /tmp
+  file.mv(uploadPath, err => {
+    if (err) {
+      console.error('Error saving file:', err);
+      return res.status(500).send('Failed to save file.');
+    }
 
-      // Run pandoc to extract plain text
-      exec(`pandoc "${uploadPath}" -t plain`, (err, stdout, stderr) => {
-        if (err) {
-          console.error('Pandoc error:', stderr);
-          res.status(500).send(stderr);
-          return;
+    console.log('File saved, starting pandoc conversion...');
+
+    // Run pandoc
+    exec(`pandoc "${uploadPath}" -t plain`, (err, stdout, stderr) => {
+      if (err) {
+        console.error('Pandoc conversion error:', stderr);
+        return res.status(500).send(`Pandoc error: ${stderr}`);
+      }
+
+      console.log('Pandoc conversion done, sending response...');
+      res.send(stdout);
+
+      // Clean up temp file
+      fs.unlink(uploadPath, unlinkErr => {
+        if (unlinkErr) {
+          console.error('Error deleting temp file:', unlinkErr);
+        } else {
+          console.log(`Cleaned up temp file: ${uploadPath}`);
         }
-        console.log('Conversion complete');
-        res.send(stdout);
-        // Cleanup
-        fs.unlink(uploadPath, () => {});
       });
     });
   });
-
-  busboy.on('error', err => {
-    console.error('Busboy error:', err);
-    res.status(500).send('File upload failed.');
-  });
-
-  req.pipe(busboy);
 });
 
 // Start server
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
-  console.log(`✅ Server listening on port ${PORT}`);
+  console.log(`✅ Pandoc server listening on port ${PORT}`);
 });
